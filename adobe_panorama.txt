@@ -1,0 +1,7 @@
+hotel-07.png hotel-06.png
+hotel-06.png hotel-05.png
+hotel-05.png hotel-04.png
+hotel-04.png hotel-03.png
+hotel-03.png hotel-02.png
+hotel-02.png hotel-01.png
+hotel-01.png hotel-00.png
