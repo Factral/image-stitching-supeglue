@@ -4,28 +4,21 @@ import argparse
 import shutil
 import numpy as np
 import cv2
+import sys
 
 
-def create_image_pairs(folder_path, output_file):
-    files = sorted([f for f in os.listdir(folder_path) if f.endswith('.jpeg', '.jpg', '.png')])
-    
-    with open(output_file, 'w') as f:
-        f.writelines(f"{files[i]} {files[i-1]}\n" for i in range(1, len(files)))
-
-    npz_files = [f"{os.path.splitext(files[i])[0]}_{os.path.splitext(files[i-1])[0]}_matches.npz" for i in range(1, len(files))]
-
-    return files, npz_files
 
 
 def run_match_pairs_script(folder,relations_path):
     command = [
-        "python3", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
+        "python", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
         "--max_keypoints", "2048", "--nms_radius", "5", "--resize_float",
         "--input_dir", f"{folder}/tmp/", "--input_pairs", f"{relations_path}",
         "--output_dir", f"{folder}/output", "--keypoint_threshold", "0.05",
         "--match_threshold", "0.9"
     ]
-    subprocess.run(command)
+    subprocess.run(command, capture_output=False)
+    print("Match pairs script executed successfully")
 
 
 def loadNPZ(npz_file, folder):
@@ -39,6 +32,8 @@ def loadNPZ(npz_file, folder):
 
 
 def warpImages(im_left, im_right, H):
+
+    print(type(im_left), type(im_right), type(H))
 
     # Calculate the size of the output panorama canvas
     h_left, w_left = im_left.shape[:2]
@@ -76,7 +71,85 @@ def warpImages(im_left, im_right, H):
     # Place the left image in the panorama
     panorama[-y_min:h_left - y_min, -x_min:w_left - x_min] = im_left
 
-    return panorama
+    return panorama, [-x_min, -y_min]
+
+
+
+def blendingMask(height, width, barrier, smoothing_window, left_biased=True):
+    assert barrier < width
+    mask = np.zeros((height, width))
+
+    offset = int(smoothing_window / 2)
+    try:
+        if left_biased:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(1, 0, 2 * offset + 1).T, (height, 1)
+            )
+            mask[:, : barrier - offset] = 1
+        else:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(0, 1, 2 * offset + 1).T, (height, 1)
+            )
+            mask[:, barrier + offset :] = 1
+    except BaseException:
+        if left_biased:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(1, 0, 2 * offset).T, (height, 1)
+            )
+            mask[:, : barrier - offset] = 1
+        else:
+            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
+                np.linspace(0, 1, 2 * offset).T, (height, 1)
+            )
+            mask[:, barrier + offset :] = 1
+
+    return cv2.merge([mask, mask, mask])
+
+
+def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False):
+    """Given two aligned images @dst_img and @src_img_warped, and the @width_dst is width of dst_img
+    before resize, that indicates where there is the discontinuity between the images,
+    this function produce a smoothed transient in the overlapping.
+    @smoothing_window is a parameter that determines the width of the transient
+    left_biased is a flag that determines whether it is masked the left image,
+    or the right one"""
+
+    h, w, _ = dst_img_rz.shape
+    smoothing_window = int(width_dst / 16)
+    barrier = width_dst - int(smoothing_window / 2)
+    mask1 = blendingMask(
+        h, w, barrier, smoothing_window=smoothing_window, left_biased=False
+    )
+    mask2 = blendingMask(
+        h, w, barrier, smoothing_window=smoothing_window, left_biased=True
+    )
+
+    if showstep:
+        nonblend = src_img_warped + dst_img_rz
+    else:
+        nonblend = None
+        leftside = None
+        rightside = None
+
+    if side == "left":
+        dst_img_rz = cv2.flip(dst_img_rz, 1)
+        src_img_warped = cv2.flip(src_img_warped, 1)
+        dst_img_rz = dst_img_rz * (1-mask1)
+        src_img_warped  = src_img_warped * mask1
+        pano = src_img_warped + dst_img_rz
+        pano = cv2.flip(pano, 1)
+        if showstep:
+            leftside = cv2.flip(src_img_warped, 1)
+            rightside = cv2.flip(dst_img_rz, 1)
+    else:
+        dst_img_rz = dst_img_rz * mask1
+        src_img_warped = src_img_warped * mask2
+        pano = src_img_warped + dst_img_rz
+        if showstep:
+            leftside = dst_img_rz
+            rightside = src_img_warped
+
+    return pano, nonblend, leftside, rightside
 
 
 def main(args):
@@ -84,30 +157,75 @@ def main(args):
 
     os.makedirs(f"{args.folder}/tmp", exist_ok=True)
 
-    print("args.folder", args.folder)
-    images = sorted([f for f in os.listdir(args.folder)])
+    images = sorted([f for f in os.listdir(args.folder) if os.path.isfile(os.path.join(args.folder, f))])
 
-    for i in range(len(images)):
-        shutil.copy(f"{args.folder}/{images[i]}", f"{args.folder}/tmp/{images[i]}")
-        shutil.copy(f"{args.folder}/{images[i+1]}", f"{args.folder}/tmp/{images[i+1]}")
+    for i in range(len(images)-1):
+        print(i)
+        if i == 0:
+            shutil.copy2(f"{args.folder}/{images[i]}", f"{args.folder}/tmp/{images[i]}")
+        else:
+            shutil.copy2(path_panorama, f"{args.folder}/tmp/{path_panorama.split('/')[-1]}")
+        shutil.copy2(f"{args.folder}/{images[i+1]}", f"{args.folder}/tmp/{images[i+1]}")
+
+        if i == 0:
+            with open(f"image_names.txt", 'w') as f:
+                f.write(f"{images[i+1]} {images[i]}\n")
+        else:
+            with open(f"image_names.txt", 'w') as f:
+                f.write(f"{images[i+1]} {path_panorama.split('/')[-1]}\n")
 
         run_match_pairs_script(args.folder ,output_file)
 
 
-        os.remove(f"{args.folder}/tmp/{images[i]}")
+        if i == 0:
+            os.remove(f"{args.folder}/tmp/{images[i]}")
+        else:
+            os.remove(f"{args.folder}/tmp/{path_panorama.split('/')[-1]}")
         os.remove(f"{args.folder}/tmp/{images[i+1]}")
 
-
-        npz_path = f"{os.path.splitext(images[i+1])[0]}_{os.path.splitext(images[i])[0]}_matches.npz"
+        if i == 0:
+            npz_path = f"{os.path.splitext(images[i+1])[0]}_{os.path.splitext(images[i])[0]}_matches.npz"
+        else:
+            npz_path = f"{os.path.splitext(images[i+1])[0]}_{os.path.splitext(path_panorama.split('/')[-1])[0]}_matches.npz"
         point_set1, point_set2 = loadNPZ(npz_path, args.folder)
-        H, status = cv2.findHomography(point_set1, point_set2, cv2.RANSAC, 5.0)
 
-        im_left = cv2.imread(f"{args.folder}/{images[i]}")
-        im_right = cv2.imread(f"{args.folder}/{images[i+1]}")
+        H, status = cv2.findHomography(point_set1, point_set2)
 
-        panorama = warpImages(im_right, im_left, H)
+        if i == 0:
+            im_right = cv2.imread(f"{args.folder}/{images[i+1]}")
+        else:
+            im_left = cv2.imread(f"{args.folder}/{images[i+1]}")
+            
+        if i == 0:
+            im_left = cv2.imread(f"{args.folder}/{images[i]}")
+        else:
+            im_right = cv2.imread(path_panorama)
+ 
 
-        cv2.imwrite(f"{args.folder}/tmp/panorama_{images[i+1]}_{images[i]}.png", panorama)
+        if i == 0:
+            panorama,t = warpImages(im_right, im_left, H)
+        else:
+            panorama,t = warpImages(im_left, im_right, H)
+
+
+
+        # generating size of dst_img_rz which has the same size as src_img_warped
+        dst_img_rz = np.zeros((panorama.shape[0], panorama.shape[1], 3))
+        if i == 0:
+            dst_img_rz[t[1] : im_right.shape[0] + t[1], t[0] :  im_right.shape[1] + t[0]] = im_right
+        else:
+            pass
+
+        # blending panorama
+        pano, nonblend, leftside, rightside = panoramaBlending(
+            dst_img_rz, panorama, im_right.shape[1], side="left", showstep=False
+        )
+
+        path_panorama = f"{args.folder}/panorama_{images[i+1].split('.')[0]}_{images[i].split('.')[0]}.jpg"
+        cv2.imwrite(path_panorama, pano)
+
+        if i==1:
+            break
         
 
 
