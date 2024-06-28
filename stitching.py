@@ -11,7 +11,7 @@ import sys
 
 def run_match_pairs_script(folder,relations_path):
     command = [
-        "python", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
+        "python3", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
         "--max_keypoints", "2048", "--nms_radius", "5", "--resize_float",
         "--input_dir", f"{folder}/tmp/", "--input_pairs", f"{relations_path}",
         "--output_dir", f"{folder}/output", "--keypoint_threshold", "0.05",
@@ -31,7 +31,7 @@ def loadNPZ(npz_file, folder):
     return point_set1, point_set2
 
 
-def warpImages(im_left, im_right, H):
+def warpImages(im_right, im_left, H):
 
     print(type(im_left), type(im_right), type(H))
 
@@ -48,7 +48,7 @@ def warpImages(im_left, im_right, H):
     ])
 
     # Transform corners to get the bounding box of the warped right image
-    corners_right_transformed = cv2.perspectiveTransform(np.float32([corners_right]), np.linalg.inv(H))[0]
+    corners_right_transformed = cv2.perspectiveTransform(np.float32([corners_right]), H)[0]
     corners_all = np.vstack((corners_right_transformed, [[0, 0], [w_left, 0], [0, h_left], [w_left, h_left]]))
 
     # Find the extents of both the transformed and original images
@@ -63,15 +63,22 @@ def warpImages(im_left, im_right, H):
     offset = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]])
 
     # Update the transformation matrix based on offset
-    H_t = offset @ np.linalg.inv(H)
+    H_t = offset @ H
 
     # Warp the right image
     panorama = cv2.warpPerspective(im_right, H_t, (w_panorama, h_panorama), cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(0, 0, 0, 0))
+    panorama_right = panorama.copy()
 
     # Place the left image in the panorama
     panorama[-y_min:h_left - y_min, -x_min:w_left - x_min] = im_left
 
-    return panorama, [-x_min, -y_min]
+    panorama_left = np.zeros((h_panorama, w_panorama, 3), dtype=np.uint8)
+    panorama_left[-y_min:h_left - y_min, -x_min:w_left - x_min]  = im_left
+
+
+    print(-y_min,h_left, -x_min,w_left)
+
+    return panorama, [w_left - x_min,  w_left - x_min], panorama_left, panorama_right
 
 
 
@@ -79,7 +86,7 @@ def blendingMask(height, width, barrier, smoothing_window, left_biased=True):
     assert barrier < width
     mask = np.zeros((height, width))
 
-    offset = int(smoothing_window / 2)
+    offset = int(smoothing_window)
     try:
         if left_biased:
             mask[:, barrier - offset : barrier + offset + 1] = np.tile(
@@ -115,13 +122,17 @@ def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False
     or the right one"""
 
     h, w, _ = dst_img_rz.shape
-    smoothing_window = int(width_dst / 16)
-    barrier = width_dst - int(smoothing_window / 2)
+    print(width_dst)
+    smoothing_window = int(width_dst / 8)
+    barrier = width_dst - int(smoothing_window )
+    print("barrier")
+    print(barrier, width_dst, smoothing_window)
+    print(h,w)
     mask1 = blendingMask(
-        h, w, barrier, smoothing_window=smoothing_window, left_biased=False
+        h, w, barrier , smoothing_window=smoothing_window, left_biased=False
     )
     mask2 = blendingMask(
-        h, w, barrier, smoothing_window=smoothing_window, left_biased=True
+        h, w, barrier , smoothing_window=smoothing_window, left_biased=True
     )
 
     if showstep:
@@ -132,12 +143,14 @@ def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False
         rightside = None
 
     if side == "left":
-        dst_img_rz = cv2.flip(dst_img_rz, 1)
-        src_img_warped = cv2.flip(src_img_warped, 1)
-        dst_img_rz = dst_img_rz * (1-mask1)
-        src_img_warped  = src_img_warped * mask1
+        #dst_img_rz = cv2.flip(dst_img_rz, 1)
+        #src_img_warped = cv2.flip(src_img_warped, 1)
+        dst_img_rz = dst_img_rz * mask1
+        src_img_warped  = src_img_warped * mask2
         pano = src_img_warped + dst_img_rz
-        pano = cv2.flip(pano, 1)
+
+        # normalize the panorama
+        #pano = src_img_warped#cv2.flip(pano, 1)
         if showstep:
             leftside = cv2.flip(src_img_warped, 1)
             rightside = cv2.flip(dst_img_rz, 1)
@@ -203,22 +216,16 @@ def main(args):
  
 
         if i == 0:
-            panorama,t = warpImages(im_right, im_left, H)
+            panorama,t,panorama_left,panorama_right = warpImages(im_right, im_left, H)
         else:
-            panorama,t = warpImages(im_left, im_right, H)
+            panorama,t,panorama_left,panorama_right  = warpImages(im_left, im_right, H)
 
 
 
-        # generating size of dst_img_rz which has the same size as src_img_warped
-        dst_img_rz = np.zeros((panorama.shape[0], panorama.shape[1], 3))
-        if i == 0:
-            dst_img_rz[t[1] : im_right.shape[0] + t[1], t[0] :  im_right.shape[1] + t[0]] = im_right
-        else:
-            pass
-
-        # blending panorama
-        pano, nonblend, leftside, rightside = panoramaBlending(
-            dst_img_rz, panorama, im_right.shape[1], side="left", showstep=False
+        #blending panorama
+        print(t)
+        pano, nonblend, leftside, _ = panoramaBlending(
+            panorama_right, panorama_left, t[0], side="left", showstep=False
         )
 
         path_panorama = f"{args.folder}/panorama_{images[i+1].split('.')[0]}_{images[i].split('.')[0]}.jpg"
