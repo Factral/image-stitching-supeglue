@@ -11,7 +11,7 @@ import sys
 
 def run_match_pairs_script(folder,relations_path):
     command = [
-        "python3", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
+        "python", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
         "--max_keypoints", "2048", "--nms_radius", "5", "--resize_float",
         "--input_dir", f"{folder}/tmp/", "--input_pairs", f"{relations_path}",
         "--output_dir", f"{folder}/output", "--keypoint_threshold", "0.05",
@@ -227,6 +227,16 @@ def main(args):
         pano, nonblend, leftside, _ = panoramaBlending(
             panorama_right, panorama_left, t[0], side="left", showstep=False
         )
+
+        #verify the size of the uimage and if its greater than 2000x2000 resize mantaining the aspect ratio
+        if pano.shape[0] > 2000 or pano.shape[1] > 2000:
+            if pano.shape[0] > pano.shape[1]:
+                scale_factor = 1900/pano.shape[0]
+            else:
+                scale_factor = 1900/pano.shape[1]
+
+            pano = cv2.resize(pano, (int(pano.shape[0]*scale_factor), int(pano.shape[1]*scale_factor)))
+
 
         path_panorama = f"{args.folder}/panorama_{images[i+1].split('.')[0]}_{images[i].split('.')[0]}.jpg"
         cv2.imwrite(path_panorama, pano)
