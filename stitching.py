@@ -11,7 +11,7 @@ import sys
 
 def run_match_pairs_script(folder,relations_path):
     command = [
-        "python", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
+        "python3", "match_pairs.py", "--resize", "-1", "--superglue", "outdoor",
         "--max_keypoints", "2048", "--nms_radius", "5", "--resize_float",
         "--input_dir", f"{folder}/tmp/", "--input_pairs", f"{relations_path}",
         "--output_dir", f"{folder}/output", "--keypoint_threshold", "0.05",
@@ -49,6 +49,15 @@ def warpImages(im_right, im_left, H):
 
     # Transform corners to get the bounding box of the warped right image
     corners_right_transformed = cv2.perspectiveTransform(np.float32([corners_right]), H)[0]
+
+    if corners_right_transformed[1][0] < corners_right_transformed[2][0]:
+        corner = corners_right_transformed[1][0]
+    else:
+        corner = corners_right_transformed[2][0]
+
+    print("corners rights transformerd")
+    print(corners_right_transformed[2][0])
+
     corners_all = np.vstack((corners_right_transformed, [[0, 0], [w_left, 0], [0, h_left], [w_left, h_left]]))
 
     # Find the extents of both the transformed and original images
@@ -58,6 +67,12 @@ def warpImages(im_right, im_left, H):
     # Size of the panorama
     w_panorama = x_max - x_min
     h_panorama = y_max - y_min
+
+    print("hola")
+    print(w_panorama)
+    result = int(corner- x_min)
+    print(corners_right_transformed[2][0] - x_min)
+
 
     # Offset for translation
     offset = np.array([[1, 0, -x_min], [0, 1, -y_min], [0, 0, 1]])
@@ -70,15 +85,29 @@ def warpImages(im_right, im_left, H):
     panorama_right = panorama.copy()
 
     # Place the left image in the panorama
+
+
     panorama[-y_min:h_left - y_min, -x_min:w_left - x_min] = im_left
 
+
+    cv2.imwrite("panorama23.jpg", panorama)
+
+
     panorama_left = np.zeros((h_panorama, w_panorama, 3), dtype=np.uint8)
+
+
     panorama_left[-y_min:h_left - y_min, -x_min:w_left - x_min]  = im_left
+    cv2.imwrite("panorama24.jpg", panorama_left)
+
+    #save im_left in path
+    cv2.imwrite("im_left.jpg", im_left)
+
+    offset = result - (-x_min)
 
 
-    print(-y_min,h_left, -x_min,w_left)
+    print(-y_min, -x_min)
 
-    return panorama, [w_left - x_min,  w_left - x_min], panorama_left, panorama_right
+    return panorama, [result,  offset], panorama_left, panorama_right, corners_all
 
 
 
@@ -89,15 +118,17 @@ def blendingMask(height, width, barrier, smoothing_window, left_biased=True):
     offset = int(smoothing_window)
     try:
         if left_biased:
-            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
-                np.linspace(1, 0, 2 * offset + 1).T, (height, 1)
+            mask[:, barrier - offset : barrier + 1] = np.tile(
+                np.linspace(1, 0, offset + 1).T, (height, 1)
             )
+            cv2.imwrite("maskleftinter.jpg", mask * 255)
             mask[:, : barrier - offset] = 1
         else:
-            mask[:, barrier - offset : barrier + offset + 1] = np.tile(
-                np.linspace(0, 1, 2 * offset + 1).T, (height, 1)
+            mask[:, barrier - offset : barrier  + 1 ] = np.tile(
+                np.linspace(0, 1,  offset + 1).T, (height, 1)
             )
-            mask[:, barrier + offset :] = 1
+            cv2.imwrite("maskrightinter.jpg", mask * 255)
+            mask[:, barrier :] = 1
     except BaseException:
         if left_biased:
             mask[:, barrier - offset : barrier + offset + 1] = np.tile(
@@ -113,7 +144,7 @@ def blendingMask(height, width, barrier, smoothing_window, left_biased=True):
     return cv2.merge([mask, mask, mask])
 
 
-def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False):
+def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side,smoothing_window ,showstep=False):
     """Given two aligned images @dst_img and @src_img_warped, and the @width_dst is width of dst_img
     before resize, that indicates where there is the discontinuity between the images,
     this function produce a smoothed transient in the overlapping.
@@ -123,8 +154,7 @@ def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False
 
     h, w, _ = dst_img_rz.shape
     print(width_dst)
-    smoothing_window = int(width_dst / 8)
-    barrier = width_dst - int(smoothing_window )
+    barrier = width_dst #- int(smoothing_window )
     print("barrier")
     print(barrier, width_dst, smoothing_window)
     print(h,w)
@@ -145,25 +175,50 @@ def panoramaBlending(dst_img_rz, src_img_warped, width_dst, side, showstep=False
     if side == "left":
         #dst_img_rz = cv2.flip(dst_img_rz, 1)
         #src_img_warped = cv2.flip(src_img_warped, 1)
-        dst_img_rz = dst_img_rz * mask1
-        src_img_warped  = src_img_warped * mask2
+        dst_img_rz = dst_img_rz * mask2
+        cv2.imwrite("mask2.jpg", mask2 * 255)
+
+        src_img_warped  = src_img_warped * mask1
+
+        cv2.line(mask1, (barrier, 0), (barrier, h), (0, 255, 0), 2)
+        cv2.imwrite("mas1k.jpg", mask1 * 255)
+        
         pano = src_img_warped + dst_img_rz
 
-        # normalize the panorama
-        #pano = src_img_warped#cv2.flip(pano, 1)
-        if showstep:
-            leftside = cv2.flip(src_img_warped, 1)
-            rightside = cv2.flip(dst_img_rz, 1)
-    else:
-        dst_img_rz = dst_img_rz * mask1
-        src_img_warped = src_img_warped * mask2
-        pano = src_img_warped + dst_img_rz
-        if showstep:
-            leftside = dst_img_rz
-            rightside = src_img_warped
+        #draw a line in barrier
+        cv2.line(pano, (barrier, 0), (barrier, h), (0, 255, 0), 2)
+
 
     return pano, nonblend, leftside, rightside
 
+
+
+def crop(panorama, h_dst, conners):
+    """crop panorama based on destination.
+    @param panorama is the panorama
+    @param h_dst is the hight of destination image
+    @param conner is the tuple which containing 4 conners of warped image and
+    4 conners of destination image"""
+    # find max min of x,y coordinate
+    xmin, ymin = np.min(conners, axis=0).astype(int)
+    x_max, ymax = np.max(conners, axis=0).astype(int)
+    t = [-xmin, -ymin]
+    print(f"t: {t}")
+    conners = conners.astype(int)
+    #    corners_all = np.vstack((corners_right_transformed, [[0, 0], [w_left, 0], [0, h_left], [w_left, h_left]]))
+    # conners[0][0][0] is the X coordinate of top-left point of warped image
+    # If it has value<0, warp image is merged to the left side of destination image
+    # otherwise is merged to the right side of destination image
+    print(conners[0][0])
+    if conners[0][0] < 0:
+        n = abs(-conners[1][0] + conners[0][0])
+        panorama = panorama[t[1] : h_dst + t[1], conners[1][0]:, :]
+    else:
+        if conners[1][0] < conners[2][0]:
+            panorama = panorama[t[1] : h_dst + t[1], 0 : conners[1][0], :]
+        else:
+            panorama = panorama[t[1] : h_dst + t[1], 0 : conners[2][0], :]
+    return panorama
 
 def main(args):
     output_file = 'image_names.txt'
@@ -200,48 +255,50 @@ def main(args):
             npz_path = f"{os.path.splitext(images[i+1])[0]}_{os.path.splitext(images[i])[0]}_matches.npz"
         else:
             npz_path = f"{os.path.splitext(images[i+1])[0]}_{os.path.splitext(path_panorama.split('/')[-1])[0]}_matches.npz"
-        point_set1, point_set2 = loadNPZ(npz_path, args.folder)
+        point_set2, point_set1 = loadNPZ(npz_path, args.folder)
 
         H, status = cv2.findHomography(point_set1, point_set2)
 
         if i == 0:
             im_right = cv2.imread(f"{args.folder}/{images[i+1]}")
         else:
-            im_left = cv2.imread(f"{args.folder}/{images[i+1]}")
+            im_right = cv2.imread(f"{args.folder}/{images[i+1]}")
             
         if i == 0:
             im_left = cv2.imread(f"{args.folder}/{images[i]}")
         else:
-            im_right = cv2.imread(path_panorama)
- 
+            im_left = cv2.imread(path_panorama)
 
-        if i == 0:
-            panorama,t,panorama_left,panorama_right = warpImages(im_right, im_left, H)
-        else:
-            panorama,t,panorama_left,panorama_right  = warpImages(im_left, im_right, H)
+            
+        panorama,t,panorama_left,panorama_right , corners = warpImages(im_left, im_right, H)
 
-
+        
 
         #blending panorama
-        print(t)
-        pano, nonblend, leftside, _ = panoramaBlending(
-            panorama_right, panorama_left, t[0], side="left", showstep=False
+        #print(t)
+        panorama, nonblend, leftside, _ = panoramaBlending(
+            panorama_right, panorama_left, t[0], "left", t[1],showstep=False
         )
 
-        #verify the size of the uimage and if its greater than 2000x2000 resize mantaining the aspect ratio
-        if pano.shape[0] > 2000 or pano.shape[1] > 2000:
-            if pano.shape[0] > pano.shape[1]:
-                scale_factor = 1900/pano.shape[0]
-            else:
-                scale_factor = 1900/pano.shape[1]
+        print(corners)
+        #panorama = crop(panorama, im_left.shape[0], corners)
 
-            pano = cv2.resize(pano, (int(pano.shape[0]*scale_factor), int(pano.shape[1]*scale_factor)))
+        #verify the size of the uimage and if its greater than 2000x2000 resize mantaining the aspect ratio
+        #print(panorama.shape)
+        if panorama.shape[0] > 2000 or panorama.shape[1] > 2000:
+            if panorama.shape[0] > panorama.shape[1]:
+                scale_factor = 1800/panorama.shape[0]
+            else:
+                scale_factor = 1800/panorama.shape[1]
+        
+            print(f"Scaling factor: {scale_factor}")
+            panorama = cv2.resize(panorama, (int(panorama.shape[1]*scale_factor), int(panorama.shape[0]*scale_factor)))
 
 
         path_panorama = f"{args.folder}/panorama_{images[i+1].split('.')[0]}_{images[i].split('.')[0]}.jpg"
-        cv2.imwrite(path_panorama, pano)
+        cv2.imwrite(path_panorama, panorama)
 
-        if i==1:
+        if i==3:
             break
         
 
