@@ -14,7 +14,7 @@
 
 ## Overview
 
-This repository contains a Python script for stitching images together using SuperGlue for matching keypoints and OpenCV for image processing. The script processes a folder of images, aligning and blending them to create a seamless panorama.
+This repository contains a Python script for stitching images together using [SuperGlue network](https://github.com/magicleap/SuperGluePretrainedNetwork) for matching keypoints and OpenCV for image processing. The script processes a folder of images, aligning and blending them to create a seamless panorama.
 
 ### Arguments
 
@@ -62,4 +62,4 @@ The codebase is structured as follows:
 
 This project is licensed under the MIT License
 
-feel free to use it and modify it as you wish, if you find this code useful please give a star to the repository.
+feel free to use it and modify it as you wish, if you find this code useful please give a star ⭐ to the repository.
