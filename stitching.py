@@ -5,6 +5,7 @@ import shutil
 import numpy as np
 import cv2
 import sys
+import re
 
 
 def run_match_pairs_script(folder,relations_path):
@@ -190,8 +191,11 @@ def panoramaBlending(dst_img_rz, src_img_warped, width_dst,smoothing_window):
 
     # element-wise multiplication
     dst_img_rz = dst_img_rz * mask2
+    cv2.imwrite("mask1.png", mask1 * 255)
     src_img_warped  = src_img_warped * mask1
-    
+    cv2.imwrite("mask2.png", mask2 * 255)
+
+ 
     # add two images
     pano = src_img_warped + dst_img_rz
 
@@ -250,14 +254,18 @@ def crop(panorama, h_dst, conners):
 
     return pano
 
-
+def extract_number(filename):
+    match = re.search(r'(\d+)', filename)
+    return int(match.group()) if match else 0
 
 def main(args):
 
     output_file = 'image_names.txt'
     os.makedirs(f"{args.folder}/tmp", exist_ok=True)
 
-    images = sorted([f for f in os.listdir(args.folder) if os.path.isfile(os.path.join(args.folder, f))])
+    images = sorted([f for f in os.listdir(args.folder) if os.path.isfile(os.path.join(args.folder, f))], key=extract_number)
+    print(images)
+
 
     for i in range(len(images)-1):
 
@@ -277,6 +285,24 @@ def main(args):
         else:
             with open(f"image_names.txt", 'w') as f:
                 f.write(f"{images[i+1]} {path_panorama.split('/')[-1]}\n")
+
+        # check if its neccesary to resize the images
+        if i == 0:
+            im1 = cv2.imread(f"{args.folder}/tmp/{images[i]}")
+        else:
+            im1 = cv2.imread(f"{args.folder}/tmp/{path_panorama.split('/')[-1]}")
+
+        im2 = cv2.imread(f"{args.folder}/tmp/{images[i+1]}")
+
+        if im1.shape[0] > 2000 or im1.shape[1] > 2000:
+            im1 = cv2.resize(im1, (int(im1.shape[1]*0.5), int(im1.shape[0]*0.5)))
+            cv2.imwrite(f"{args.folder}/tmp/{images[i]}", im1)
+            cv2.imwrite(f"{args.folder}/{images[i]}", im1)
+        
+        if im2.shape[0] > 2000 or im2.shape[1] > 2000:
+            im2 = cv2.resize(im2, (int(im2.shape[1]*0.5), int(im2.shape[0]*0.5)))
+            cv2.imwrite(f"{args.folder}/tmp/{images[i+1]}", im2)
+            cv2.imwrite(f"{args.folder}/{images[i+1]}", im2)
 
         # Run the match_pairs.py script
         run_match_pairs_script(args.folder ,output_file)
