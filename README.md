@@ -1,7 +1,7 @@
 <p align="center">
   <h1 align="center">Image Stitching using SuperGlue</h1>
   <p align="center">
-    <img src="./static/panorama.png" alt="Panorama Image" width="1600">
+    <img src="./data/results.png" alt="Panorama Image" width="1600">
   <p align="center">
     <a href="https://github.com/Factral/" rel="external nofollow noopener" target="_blank"><strong>Fabian Perez</strong></a>
     ·
