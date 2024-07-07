@@ -39,6 +39,8 @@ cd image-stitching-supeglue
 pip install -r requirements.txt
 ```
 
+this code was developed with python 3.10
+
 ### Running the Script
 
 To create a panorama from the images in the specified folder, use the following command:
