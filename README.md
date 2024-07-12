@@ -12,8 +12,8 @@
 <p align="center">
     Digital Image Processing project at UIS 2024-1
 
-- Visit the  [report]("./report.pdf") for more information about the project.
-- Visit the  [slides]("./slides.pdf") for the presentation.
+- Visit the  [report](report.pdf) for more information about the project.
+- Visit the  [slides](slides.pdf) for the presentation.
 
 ## Overview
 
